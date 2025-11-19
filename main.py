@@ -1,20 +1,39 @@
 import polars as pl
 
 
-df = pl.read_csv("constraints_2025.csv")\
+da_constraints = pl.read_csv("constraints_display.csv")\
     .with_columns(
-        pl.col("datetime_beginning_utc").str.strptime(
-            pl.Datetime,
-            format="%m/%d/%Y %I:%M:%S %p").dt.convert_time_zone("EST"))\
-    .select(
-        "datetime_beginning_utc",
-        "shadow_price")\
-    .group_by("datetime_beginning_utc")\
-    .agg(pl.col("shadow_price").sum())\
-    .rename({"datetime_beginning_utc":"Datetime (HB)"})\
-    .sort("Datetime (HB)")
+        pl.col("Datetime (HB)")\
+        .str.to_datetime("%Y-%m-%dT%H:%M:%S%.f%z")\
+        .dt.convert_time_zone("EST")
+        .alias("datetime"))
 
+rt_constraints = pl.read_csv("rt_constraints_display.csv")\
+    .with_columns(
+        pl.col("datetime")
+        .str.to_datetime("%Y-%m-%dT%H:%M:%S%.f")\
+        .dt.replace_time_zone("EST"))
+
+df = da_constraints\
+    .join(
+        other=rt_constraints,
+        on="datetime",
+        coalesce=True,
+        suffix="_rt",
+        how="full")\
+    .with_columns(
+        abs(pl.col("shadow_price_rt")),  # easier to interpret when positive
+    )\
+    .sort("datetime")\
+    .select(
+        pl.col("datetime").alias("Datetime (HB)"),
+        pl.col("shadow_price").alias("shadow_price_DA"),
+        pl.col("shadow_price_rt").alias("shadow_price_RT"),
+    )\
+    .with_columns(
+        (pl.col("shadow_price_RT") - pl.col("shadow_price_DA"))
+        .alias("shadow_price_DART"),
+    )
 
 print(df)
-
-df.write_csv("~/Downloads/constraints_display.csv")
+#df.write_csv("~/Downloads/pjm_constraints_DART.csv")
